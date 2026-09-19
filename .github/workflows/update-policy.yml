@@ -1,0 +1,300 @@
+name: reconcile Homebrew automation update
+
+on:
+  workflow_call:
+    inputs:
+      pr-number:
+        description: Pull request number associated with the completed validation run.
+        required: true
+        type: number
+      pr-head-sha:
+        description: Pull request head SHA associated with the completed validation run.
+        required: true
+        type: string
+      validation-event:
+        description: Event that triggered the completed validation workflow.
+        required: true
+        type: string
+      validation-conclusion:
+        description: Conclusion of the completed validation workflow.
+        required: true
+        type: string
+
+concurrency:
+  group: homebrew-actions-policy-${{ github.repository }}-${{ inputs.pr-number }}
+  cancel-in-progress: true
+
+jobs:
+  policy-start:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    outputs:
+      pr_author: ${{ steps.pr.outputs.author }}
+      pr_base_sha: ${{ steps.pr.outputs.base_sha }}
+      pr_head_sha: ${{ steps.pr.outputs.head_sha }}
+      pr_commit_count: ${{ steps.pr.outputs.commit_count }}
+      pr_file_count: ${{ steps.pr.outputs.file_count }}
+      pr_url: ${{ steps.pr.outputs.url }}
+    steps:
+      - name: Inspect pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          EXPECTED_HEAD_SHA: ${{ inputs.pr-head-sha }}
+          VALIDATION_EVENT: ${{ inputs.validation-event }}
+        run: |
+          set -euo pipefail
+
+          if [ "$VALIDATION_EVENT" != "pull_request" ]; then
+            echo "::error::Homebrew update policy requires a pull_request validation run."
+            exit 1
+          fi
+          case "$PR_NUMBER" in
+            ''|*[!0-9]*|0)
+              echo "::error::Invalid pull request number."
+              exit 1
+              ;;
+          esac
+          case "$EXPECTED_HEAD_SHA" in
+            *[!0-9a-fA-F]*|'')
+              echo "::error::Pull request head must be a full commit SHA."
+              exit 1
+              ;;
+          esac
+          if [ "${#EXPECTED_HEAD_SHA}" -ne 40 ]; then
+            echo "::error::Pull request head must be a full commit SHA."
+            exit 1
+          fi
+
+          IFS=$'\t' read -r author head_sha base_sha commit_count file_count url head_repo <<EOF
+          $(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              --jq '[.user.login, .head.sha, .base.sha, (.commits|tostring), (.changed_files|tostring), .html_url, .head.repo.full_name] | @tsv'
+          )
+          EOF
+
+          if [ "$head_sha" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "::error::Pull request head changed after validation."
+            exit 1
+          fi
+
+          {
+            echo "author=$author"
+            echo "base_sha=$base_sha"
+            echo "head_sha=$head_sha"
+            echo "commit_count=$commit_count"
+            echo "file_count=$file_count"
+            echo "url=$url"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$author" != "dependabot[bot]" ]; then
+            exit 0
+          fi
+          if [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::Dependabot update head repository does not match the consumer repository."
+            exit 1
+          fi
+
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$head_sha" \
+            -f state=pending \
+            -f context=homebrew-actions/policy \
+            -f description="Reconciling Homebrew automation update" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+  authorize:
+    if: >-
+      needs.policy-start.outputs.pr_author == 'dependabot[bot]' &&
+      inputs.validation-conclusion == 'success'
+    needs: policy-start
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      outcome: ${{ steps.authorization.outcome }}
+    steps:
+      - name: Checkout pinned Homebrew policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+
+      - name: Authorize dependency-only update
+        id: authorization
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ needs.policy-start.outputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ needs.policy-start.outputs.pr_head_sha }}
+          PR_COMMIT_COUNT: ${{ needs.policy-start.outputs.pr_commit_count }}
+          PR_FILE_COUNT: ${{ needs.policy-start.outputs.pr_file_count }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+        run: |
+          set -euo pipefail
+
+          if [ "$PR_COMMIT_COUNT" -gt 100 ] || [ "$PR_FILE_COUNT" -gt 100 ]; then
+            echo "::error::Dependabot update is too large to verify."
+            exit 1
+          fi
+
+          evidence="$RUNNER_TEMP/homebrew-actions-update"
+          mkdir -p "$evidence/base-workflows" "$evidence/head-workflows"
+
+          gh api --method GET "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" \
+            -f per_page=100 > "$evidence/commits.json"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+            -f per_page=100 > "$evidence/files.json"
+
+          approved_tag="$(
+            gh api --method GET "repos/jinyongp/homebrew-actions/releases?per_page=100" \
+              --paginate \
+              --slurp \
+              --jq '
+                flatten
+                | map(select(
+                    .draft == false
+                    and .immutable == true
+                    and .published_at != null
+                    and (.tag_name | test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
+                  ))
+                | map(. + {
+                    version_parts: (.tag_name | ltrimstr("v") | split(".") | map(tonumber))
+                  })
+                | sort_by(.version_parts)
+                | last
+                | .tag_name // empty
+              '
+          )"
+          if [ -z "$approved_tag" ]; then
+            echo "::error::No immutable homebrew-actions release is available."
+            exit 1
+          fi
+
+          approved_sha="$(
+            gh api --method GET "repos/jinyongp/homebrew-actions/commits/$approved_tag" --jq .sha
+          )"
+
+          for public_workflow in check.yml publish.yml update-policy.yml; do
+            gh api --method GET \
+              "repos/jinyongp/homebrew-actions/contents/.github/workflows/$public_workflow" \
+              -f ref="$approved_sha" \
+              --silent
+          done
+
+          for side in base head; do
+            if [ "$side" = "base" ]; then
+              revision="$PR_BASE_SHA"
+            else
+              revision="$PR_HEAD_SHA"
+            fi
+
+            gh api --method GET "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
+              -f ref="$revision" \
+              --jq '.[] | select(.type == "file" and (.name | endswith(".yml") or endswith(".yaml"))) | .path' \
+              > "$evidence/$side-workflow-paths"
+
+            while IFS= read -r path; do
+              gh api --method GET "repos/$GITHUB_REPOSITORY/contents/$path" \
+                -f ref="$revision" \
+                --jq .content \
+                | tr -d '\n' \
+                | base64 --decode \
+                > "$evidence/$side-workflows/${path##*/}"
+            done < "$evidence/$side-workflow-paths"
+          done
+
+          python3 automation/internal/policy/authorize-update.py \
+            --commits "$evidence/commits.json" \
+            --files "$evidence/files.json" \
+            --expected-commit-count "$PR_COMMIT_COUNT" \
+            --expected-file-count "$PR_FILE_COUNT" \
+            --approved-sha "$approved_sha" \
+            --approved-tag "$approved_tag" \
+            --base-workflows "$evidence/base-workflows" \
+            --head-workflows "$evidence/head-workflows"
+
+  reconcile:
+    if: >-
+      always() &&
+      needs.policy-start.outputs.pr_author == 'dependabot[bot]'
+    needs:
+      - policy-start
+      - authorize
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      description: ${{ steps.reconcile.outputs.description }}
+    steps:
+      - name: Checkout pinned Homebrew policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+
+      - name: Reconcile auto-merge
+        id: reconcile
+        env:
+          AUTHORIZATION_OUTCOME: ${{ inputs.validation-conclusion == 'success' && needs.authorize.outputs.outcome == 'success' && 'success' || 'failure' }}
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ needs.policy-start.outputs.pr_head_sha }}
+          PR_URL: ${{ needs.policy-start.outputs.pr_url }}
+        run: bash automation/internal/policy/reconcile.sh
+
+  report:
+    if: >-
+      always() &&
+      needs.policy-start.outputs.pr_author == 'dependabot[bot]'
+    needs:
+      - policy-start
+      - authorize
+      - reconcile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - name: Report policy status
+        env:
+          AUTHORIZATION_OUTCOME: ${{ needs.authorize.outputs.outcome }}
+          DESCRIPTION: ${{ needs.reconcile.outputs.description }}
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ needs.policy-start.outputs.pr_head_sha }}
+          RECONCILE_RESULT: ${{ needs.reconcile.result }}
+          VALIDATION_CONCLUSION: ${{ inputs.validation-conclusion }}
+        run: |
+          set -euo pipefail
+
+          report() {
+            gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$PR_HEAD_SHA" \
+              -f state="$1" \
+              -f context=homebrew-actions/policy \
+              -f description="$2" \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          }
+
+          if [ "$VALIDATION_CONCLUSION" != "success" ]; then
+            report failure "Homebrew validation did not succeed"
+            exit 0
+          fi
+          if [ "$AUTHORIZATION_OUTCOME" != "success" ]; then
+            report failure "Homebrew automation update requires manual review"
+            exit 0
+          fi
+          if [ "$RECONCILE_RESULT" != "success" ]; then
+            report failure "Failed to reconcile Homebrew automation auto-merge"
+            exit 0
+          fi
+          report success "$DESCRIPTION"

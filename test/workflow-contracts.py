@@ -78,9 +78,44 @@ def assert_publish_contract() -> None:
     assert "TAP_BRANCH: ${{ inputs.tap-branch }}" in text
 
 
+def assert_policy_contract() -> None:
+    text = (ROOT / ".github/workflows/update-policy.yml").read_text()
+
+    assert "pull_request_target" not in text
+    assert "dependabot/fetch-metadata" not in text
+    assert "actions/download-artifact" not in text
+    assert "actions/cache" not in text
+    assert "ref: ${{ inputs.pr-head-sha }}" not in text
+
+    public = text.split("concurrency:", 1)[0]
+    for required in [
+        "      pr-number:",
+        "      pr-head-sha:",
+        "      validation-event:",
+        "      validation-conclusion:",
+    ]:
+        assert required in public, required
+    assert "secrets:" not in public
+
+    assert "repository: ${{ job.workflow_repository }}" in text
+    assert "ref: ${{ job.workflow_sha }}" in text
+    assert "repos/jinyongp/homebrew-actions/releases?per_page=100" in text
+    assert "sort_by(.version_parts)" in text
+    assert "for public_workflow in check.yml publish.yml update-policy.yml; do" in text
+    assert "contents/.github/workflows/$public_workflow" in text
+
+    assert "context=homebrew-actions/policy" in text
+    assert "contents: read\n      pull-requests: read" in text
+    assert "contents: write\n      pull-requests: write" in text
+    assert "statuses: write" in text
+    assert "automation/internal/policy/authorize-update.py" in text
+    assert "automation/internal/policy/reconcile.sh" in text
+
+
 def main() -> None:
     assert_check_contract()
     assert_publish_contract()
+    assert_policy_contract()
     print("Homebrew workflow contracts passed")
 
 

@@ -5,3 +5,6 @@ paths:
   .github/workflows/publish.yml:
     ignore:
       - 'property "workflow_(repository|sha)" is not defined in object type'
+  .github/workflows/update-policy.yml:
+    ignore:
+      - 'property "workflow_(repository|sha)" is not defined in object type'
