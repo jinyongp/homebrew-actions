@@ -91,6 +91,7 @@ def assert_policy_contract() -> None:
     for required in [
         "      pr-number:",
         "      pr-head-sha:",
+        "      pr-base-sha:",
         "      validation-event:",
         "      validation-conclusion:",
     ]:
@@ -110,6 +111,8 @@ def assert_policy_contract() -> None:
     assert "statuses: write" in text
     assert "automation/internal/policy/authorize-update.py" in text
     assert "automation/internal/policy/reconcile.sh" in text
+    assert "EXPECTED_BASE_SHA" in text
+    assert "Pull request base changed after validation." in text
 
 
 def main() -> None:

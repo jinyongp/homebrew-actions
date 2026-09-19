@@ -11,6 +11,10 @@ on:
         description: Pull request head SHA associated with the completed validation run.
         required: true
         type: string
+      pr-base-sha:
+        description: Pull request base SHA associated with the completed validation run.
+        required: true
+        type: string
       validation-event:
         description: Event that triggered the completed validation workflow.
         required: true
@@ -46,6 +50,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr-number }}
           EXPECTED_HEAD_SHA: ${{ inputs.pr-head-sha }}
+          EXPECTED_BASE_SHA: ${{ inputs.pr-base-sha }}
           VALIDATION_EVENT: ${{ inputs.validation-event }}
         run: |
           set -euo pipefail
@@ -70,6 +75,16 @@ jobs:
             echo "::error::Pull request head must be a full commit SHA."
             exit 1
           fi
+          case "$EXPECTED_BASE_SHA" in
+            *[!0-9a-fA-F]*|'')
+              echo "::error::Pull request base must be a full commit SHA."
+              exit 1
+              ;;
+          esac
+          if [ "${#EXPECTED_BASE_SHA}" -ne 40 ]; then
+            echo "::error::Pull request base must be a full commit SHA."
+            exit 1
+          fi
 
           IFS=$'\t' read -r author head_sha base_sha commit_count file_count url head_repo <<EOF
           $(
@@ -80,6 +95,10 @@ jobs:
 
           if [ "$head_sha" != "$EXPECTED_HEAD_SHA" ]; then
             echo "::error::Pull request head changed after validation."
+            exit 1
+          fi
+          if [ "$base_sha" != "$EXPECTED_BASE_SHA" ]; then
+            echo "::error::Pull request base changed after validation."
             exit 1
           fi
 
