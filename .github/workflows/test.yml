@@ -1,0 +1,53 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1
+        with:
+          ruby-version: "3.4"
+      - name: Formula generator
+        run: python3 test/formula-generator.py
+      - name: Workflow contracts
+        run: python3 test/workflow-contracts.py
+      - name: Publish scripts
+        run: python3 test/publish-scripts.py
+      - name: Update policy
+        run: python3 test/update-policy.py
+      - name: Deploy-key arguments
+        run: python3 test/setup-deploy-key.py
+      - name: Shell syntax
+        run: |
+          bash -n \
+            internal/formula/generate.sh \
+            internal/scripts/*.sh \
+            internal/policy/*.sh \
+            scripts/setup-deploy-key.sh
+      - name: Whitespace
+        run: git diff --check
+
+  actionlint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+      - name: Lint workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

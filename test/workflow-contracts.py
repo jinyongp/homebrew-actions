@@ -115,10 +115,41 @@ def assert_policy_contract() -> None:
     assert "Pull request base changed after validation." in text
 
 
+def assert_repository_contract() -> None:
+    release = (ROOT / ".github/workflows/release.yml").read_text()
+    ci = (ROOT / ".github/workflows/test.yml").read_text()
+    readme = (ROOT / "README.md").read_text()
+
+    assert "jinyongp/release-actions" not in release
+    assert "repos/$GITHUB_REPOSITORY/immutable-releases" in release
+    for workflow in ["check.yml", "publish.yml", "update-policy.yml"]:
+        assert f".github/workflows/{workflow}" in release
+
+    for test in [
+        "test/formula-generator.py",
+        "test/workflow-contracts.py",
+        "test/publish-scripts.py",
+        "test/update-policy.py",
+        "test/setup-deploy-key.py",
+    ]:
+        assert test in ci
+    assert "ubuntu-24.04" in ci
+    assert "macos-15" in ci
+    assert "ruby/setup-ruby@" in ci
+    assert "actionlint@v1.7.12" in ci
+
+    for workflow in ["check.yml", "publish.yml", "update-policy.yml"]:
+        assert f"homebrew-actions/.github/workflows/{workflow}@<full-sha>" in readme
+    assert "workflow_run.pull_requests[0].head.sha" in readme
+    assert "workflow_run.pull_requests[0].base.sha" in readme
+    assert "Do not use `pull_request_target`" in readme
+
+
 def main() -> None:
     assert_check_contract()
     assert_publish_contract()
     assert_policy_contract()
+    assert_repository_contract()
     print("Homebrew workflow contracts passed")
 
 
