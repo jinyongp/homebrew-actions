@@ -1,39 +1,20 @@
 # homebrew-actions
 
-Reusable GitHub Actions workflows for generating, validating, and publishing Homebrew
-Formulae.
+Generate, validate, and publish a Homebrew Formula from a product repository.
 
-This repository owns Homebrew automation. Product builds and GitHub Releases remain in
-the product repository, while published Formula state remains in the destination tap.
+`homebrew-actions` owns Formula rendering, Homebrew validation, and publishing to a
+destination tap. The product repository owns its build and GitHub Release. The tap
+repository owns published `Formula/*.rb` state.
 
-## Public workflows
+## Quick start
 
-Consumers use full commit SHAs:
+### 1. Describe the Formula
 
-```yaml
-uses: jinyongp/homebrew-actions/.github/workflows/check.yml@<full-sha> # v1.0.0
-```
+Add `.github/homebrew/formula.yml` to the product repository:
 
 ```yaml
-uses: jinyongp/homebrew-actions/.github/workflows/publish.yml@<full-sha> # v1.0.0
-```
-
-```yaml
-uses: jinyongp/homebrew-actions/.github/workflows/update-policy.yml@<full-sha> # v1.0.0
-```
-
-The adjacent `vX.Y.Z` comment is release metadata for humans and dependency tooling.
-The full SHA is the executable dependency identity.
-
-## Formula specification
-
-A product owns `.github/homebrew/formula.yml`.
-
-A source distribution is the default:
-
-```yaml
+name: example
 desc: Example CLI
-homepage: https://github.com/example/example
 license: MIT
 
 install: |
@@ -43,9 +24,56 @@ test: |
   system bin/"example", "--version"
 ```
 
-A product backed by GitHub Release assets declares them explicitly:
+The `name` in this file is the Formula identity. Workflows do not repeat it.
+
+### 2. Check pull requests
+
+Add a reusable-workflow job to the product's pull-request CI:
 
 ```yaml
+jobs:
+  homebrew:
+    uses: jinyongp/homebrew-actions/.github/workflows/check.yml@<full-sha> # v1.0.0
+```
+
+The check is read-only. It renders the Formula from the caller revision and runs the
+Homebrew spec validation path. The stable result job is `homebrew-check`.
+
+### 3. Publish after the product release
+
+After the product build and GitHub Release are complete, publish the Formula for the
+same immutable source commit:
+
+```yaml
+jobs:
+  homebrew:
+    uses: jinyongp/homebrew-actions/.github/workflows/publish.yml@<full-sha> # v1.0.0
+    with:
+      commit: ${{ needs.release.outputs.commit }}
+      version: ${{ needs.release.outputs.version }}
+    secrets:
+      tap_deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+```
+
+`publish.yml` renders the Formula, validates it on the required native Homebrew
+runners, and updates the tap only after validation succeeds. It returns:
+
+- `formula`: Formula name from the spec;
+- `version`: normalized Formula version;
+- `state`: `published` when the tap changed, otherwise `unchanged`.
+
+Always pin cross-repository workflows to a full commit SHA. The adjacent `vX.Y.Z`
+comment is release metadata for review and dependency tooling.
+
+## GitHub Release distributions
+
+When the Formula installs prebuilt GitHub Release assets, declare them in the same spec:
+
+```yaml
+name: example
+desc: Example CLI
+license: MIT
+
 distribution:
   type: github-release
   tag: "v{version}"
@@ -54,159 +82,90 @@ distribution:
     macos-x86_64: example_macos_x86_64.tar.gz
     linux-arm64: example_linux_arm64.tar.gz
     linux-x86_64: example_linux_x86_64.tar.gz
+
+install: |
+  bin.install "example"
+
+test: |
+  system bin/"example", "--version"
 ```
 
-GitHub Release creation is not part of this repository. For a
-`github-release` Formula, the required release and assets must already exist before the
-publish workflow runs.
+The referenced release must already exist when `publish.yml` runs. Release creation,
+asset upload, version selection, and product build ordering remain product
+responsibilities.
 
-## Pull request check
+## Tap write credential
 
-The check workflow is read-only. It uses the caller repository and caller event revision
-as the source and does not accept tap write credentials.
+Publishing requires exactly one credential with write access to the destination tap:
 
-```yaml
-name: Homebrew
+- `tap_deploy_key`: SSH deploy key;
+- `tap_token`: token with repository contents write access.
 
-on:
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
-
-jobs:
-  homebrew:
-    uses: jinyongp/homebrew-actions/.github/workflows/check.yml@<full-sha> # v1.0.0
-    with:
-      formula: example
-```
-
-The stable job is named `homebrew-check`.
-
-## Publish
-
-Publishing requires an immutable source commit SHA and an explicit product version.
-
-```yaml
-jobs:
-  homebrew:
-    permissions:
-      contents: read
-    uses: jinyongp/homebrew-actions/.github/workflows/publish.yml@<full-sha> # v1.0.0
-    with:
-      formula: example
-      ref: ${{ needs.release.outputs.commit }}
-      version: ${{ needs.release.outputs.version }}
-    secrets:
-      tap_deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
-```
-
-`publish.yml` performs Formula generation and native validation before it checks out
-the destination tap with write authority. It accepts exactly one write credential:
-
-- `tap_deploy_key`: an SSH deploy key with write access to the tap; or
-- `tap_token`: a token with contents write access to the tap.
-
-The destination defaults to `jinyongp/homebrew-tap@main`. Override
-`tap-repository` and `tap-branch` for a different tap.
-
-If the rendered Formula is unchanged, no commit or push occurs. Concurrent tap updates
-use bounded fetch/rebase/retry and never force-push.
-
-## Deploy key setup
-
-From a clone of this repository:
+A deploy key keeps write authority scoped to the tap repository. The included setup
+script can provision one and store the private key directly as a source-repository
+Actions secret without printing it:
 
 ```sh
 SOURCE_REPO=owner/product scripts/setup-deploy-key.sh
 ```
 
-The script creates a write deploy key in `jinyongp/homebrew-tap` and sends the private
-key directly to the source repository Actions secret
-`HOMEBREW_TAP_DEPLOY_KEY`. It does not print the private key.
+The default secret name is `HOMEBREW_TAP_DEPLOY_KEY`. Use `--force` only for an
+intentional key rotation.
 
-Use `--force` only when intentionally rotating an existing managed key/secret.
+## Advanced options
 
-## Dependency update policy
+Both workflows default to:
 
-Consumers that already auto-merge managed Homebrew automation updates use a trusted
-`workflow_run` wrapper. Do not use `pull_request_target` for this policy.
+- tap repository: `jinyongp/homebrew-tap`;
+- tap branch: `main`;
+- spec path: `.github/homebrew/formula.yml`.
 
-The validation workflow runs on `pull_request`. A separate workflow on the default
-branch observes its completion:
+Override these only for another tap or a test fixture:
 
 ```yaml
-name: Homebrew automation policy
-
-on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
-
-permissions:
-  contents: write
-  pull-requests: write
-  statuses: write
-
-jobs:
-  policy:
-    if: >-
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.pull_requests[0].number != null
-    uses: jinyongp/homebrew-actions/.github/workflows/update-policy.yml@<full-sha> # v1.0.0
-    with:
-      pr-number: ${{ github.event.workflow_run.pull_requests[0].number }}
-      pr-head-sha: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
-      pr-base-sha: ${{ github.event.workflow_run.pull_requests[0].base.sha }}
-      validation-event: ${{ github.event.workflow_run.event }}
-      validation-conclusion: ${{ github.event.workflow_run.conclusion }}
+with:
+  tap-repository: owner/homebrew-tap
+  tap-branch: main
+  spec-path: .github/homebrew/formula.yml
 ```
 
-The reusable policy re-fetches the pull request and verifies that its current head and
-base still match the validated PR revision. It treats PR commits, changed files, and workflow text as
-data only. It never checks out or executes the PR head, downloads PR artifacts, or
-restores PR-produced caches.
+The publish workflow additionally requires `commit` and `version`. `commit` must be
+the full source SHA used by the product release; the checked-out source is verified
+against it before Formula rendering.
 
-A managed update is authorized only when:
+## Formula ownership
 
-- every PR commit is verified and authored by `dependabot[bot]`;
-- only workflow files are modified;
-- workflow content changes only in `homebrew-actions` full SHA references and adjacent
-  stable `vX.Y.Z` comments;
-- all referenced Homebrew workflows use the same SHA and release comment;
-- that SHA/tag is the highest stable immutable `homebrew-actions` release;
-- `check.yml`, `publish.yml`, and `update-policy.yml` all exist at the approved
-  candidate SHA.
+The spec contains product-specific Homebrew intent such as metadata, dependencies,
+install/test behavior, optional stanzas, and release-asset names.
 
-Authorization failures disable existing auto-merge and require manual review.
+The automation owns generated Formula structure, class naming, source URLs, checksums,
+platform blocks, field ordering, native validation, tap commit creation, and bounded
+fetch/rebase/retry when the tap advances concurrently. It never force-pushes the tap.
 
 ## Validation model
 
-`check.yml` uses spec validation. `publish.yml` uses release validation, including
-native Homebrew install/test for every runner declared by the Formula generator.
+`check.yml` uses spec validation and does not require a tap write credential.
 
-The implementation code used by every reusable workflow is checked out from
-`job.workflow_repository@job.workflow_sha`. A consumer pinned to a full SHA therefore
-executes scripts and internal actions from the same pinned automation revision, not from
-a newer `main`.
+`publish.yml` uses release validation. For GitHub Release distributions it verifies the
+published immutable release, source commit, declared assets, and SHA-256 digests, then
+installs/tests the generated Formula on every required native runner before publishing.
+
+Every reusable workflow checks out its implementation from
+`job.workflow_repository@job.workflow_sha`, so a full-SHA workflow pin also pins its
+internal renderer and scripts.
 
 ## Development
 
-Local deterministic regressions:
+Run deterministic regressions locally:
 
 ```sh
+python3 test/formula-generator.py
 python3 test/workflow-contracts.py
 python3 test/publish-scripts.py
-python3 test/update-policy.py
 python3 test/setup-deploy-key.py
-python3 test/formula-generator.py
 ```
 
-The Formula generator test requires Ruby. CI runs the suite on Linux and macOS.
+CI runs the regression suite on Linux and macOS and lints the reusable workflows.
 
 ## License
 
