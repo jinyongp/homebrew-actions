@@ -19,12 +19,13 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Validate release tag
+      - name: Resolve release tag
         id: release
         env:
           TAG: ${{ inputs.tag }}
@@ -41,8 +42,7 @@ jobs:
 
           for path in \
             .github/workflows/check.yml \
-            .github/workflows/publish.yml \
-            .github/workflows/update-policy.yml; do
+            .github/workflows/publish.yml; do
             git cat-file -e "$TAG:$path"
           done
 
@@ -52,42 +52,19 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Publish immutable automation release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          TARGET: ${{ steps.release.outputs.target }}
+        id: publish
+        uses: jinyongp/release-actions@eb9538e3c76d1dc4c0e5cc4ca645480d3ec7c7b6
+        with:
+          tag: ${{ steps.release.outputs.tag }}
+          commit: ${{ steps.release.outputs.target }}
+          title: ${{ steps.release.outputs.tag }}
+          latest: "false"
+
+      - name: Summary
         run: |
-          set -euo pipefail
-
-          if gh release view "$TAG" --json isDraft,isImmutable,isPrerelease >/dev/null 2>&1; then
-            actual_target="$(
-              git ls-remote origin "refs/tags/$TAG^{}" | awk '{print $1}'
-            )"
-            if [ -z "$actual_target" ]; then
-              actual_target="$(
-                git ls-remote origin "refs/tags/$TAG" | awk '{print $1}'
-              )"
-            fi
-            [ "$actual_target" = "$TARGET" ]
-
-            state="$(
-              gh release view "$TAG" \
-                --json isDraft,isImmutable,isPrerelease \
-                --jq '[.isDraft, .isImmutable, .isPrerelease] | @tsv'
-            )"
-            [ "$state" = $'false\ttrue\tfalse' ]
-            exit 0
-          fi
-
-          gh release create "$TAG" \
-            --verify-tag \
-            --title "$TAG" \
-            --notes "homebrew-actions $TAG" \
-            --latest=false
-
-          state="$(
-            gh release view "$TAG" \
-              --json isDraft,isImmutable,isPrerelease \
-              --jq '[.isDraft, .isImmutable, .isPrerelease] | @tsv'
-          )"
-          [ "$state" = $'false\ttrue\tfalse' ]
+          {
+            echo "### homebrew-actions ${{ steps.release.outputs.tag }}"
+            echo ""
+            echo "- state: ${{ steps.publish.outputs.state }}"
+            echo "- release: ${{ steps.publish.outputs.release-url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
