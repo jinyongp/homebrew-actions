@@ -121,7 +121,8 @@ def assert_repository_contract() -> None:
     readme = (ROOT / "README.md").read_text()
 
     assert "jinyongp/release-actions" not in release
-    assert "repos/$GITHUB_REPOSITORY/immutable-releases" in release
+    assert "repos/$GITHUB_REPOSITORY/immutable-releases" not in release
+    assert "--json isDraft,isImmutable,isPrerelease" in release
     for workflow in ["check.yml", "publish.yml", "update-policy.yml"]:
         assert f".github/workflows/{workflow}" in release
 
