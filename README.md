@@ -33,7 +33,7 @@ Add a reusable-workflow job to the product's pull-request CI:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-actions/.github/workflows/check.yml@<full-sha> # v1.0.0
+    uses: jinyongp/homebrew-actions/.github/workflows/check.yml@<full-sha> # v2.0.0
 ```
 
 The check is read-only. It renders the Formula from the caller revision and runs the
@@ -47,7 +47,7 @@ same immutable source commit:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-actions/.github/workflows/publish.yml@<full-sha> # v1.0.0
+    uses: jinyongp/homebrew-actions/.github/workflows/publish.yml@<full-sha> # v2.0.0
     with:
       commit: ${{ needs.release.outputs.commit }}
       version: ${{ needs.release.outputs.version }}
