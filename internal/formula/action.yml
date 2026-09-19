@@ -9,17 +9,14 @@ inputs:
   source-path:
     description: Path to the checked-out source repository.
     required: true
-  formula:
-    description: Formula name, for example gate.
-    required: true
   repository:
     description: GitHub repository in owner/name form.
     required: true
-  ref:
-    description: Git ref, tag, branch, or commit SHA associated with the checked-out spec. Source distributions archive the resolved checkout.
+  commit:
+    description: Full source commit SHA associated with the checked-out Formula spec.
     required: true
   version:
-    description: Formula version. Defaults to a short SHA for 40-character refs, otherwise ref. Numeric v prefixes are stripped and the normalized value expands {version} in release templates.
+    description: Formula version. Defaults to the first 12 characters of commit. Numeric v prefixes are stripped and the normalized value expands {version} in release templates.
     required: false
     default: ""
   spec-path:
@@ -32,6 +29,9 @@ inputs:
     default: "release"
 
 outputs:
+  formula:
+    description: Formula name declared by the spec.
+    value: ${{ steps.update.outputs.formula }}
   formula-path:
     description: Relative path to the generated formula.
     value: ${{ steps.update.outputs.formula-path }}
@@ -41,9 +41,9 @@ outputs:
   sha256:
     description: Source archive SHA-256 checksum. Empty for GitHub Release distributions.
     value: ${{ steps.update.outputs.sha256 }}
-  resolved-ref:
-    description: Immutable commit SHA used by the source archive URL.
-    value: ${{ steps.update.outputs.resolved-ref }}
+  commit:
+    description: Immutable source commit SHA used by the Formula.
+    value: ${{ steps.update.outputs.commit }}
   version:
     description: Formula version used by the generated formula.
     value: ${{ steps.update.outputs.version }}
@@ -68,9 +68,8 @@ runs:
       env:
         TAP_PATH: ${{ inputs.tap-path }}
         SOURCE_PATH: ${{ inputs.source-path }}
-        FORMULA: ${{ inputs.formula }}
         REPOSITORY: ${{ inputs.repository }}
-        REF: ${{ inputs.ref }}
+        COMMIT: ${{ inputs.commit }}
         VERSION: ${{ inputs.version }}
         SPEC_PATH: ${{ inputs.spec-path }}
         VALIDATION_MODE: ${{ inputs.validation-mode }}

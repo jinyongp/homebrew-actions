@@ -46,7 +46,7 @@ def assert_preflight() -> None:
     with tempfile.TemporaryDirectory() as directory:
         cwd = Path(directory)
         base = {
-            "REF": "a" * 40,
+            "COMMIT": "a" * 40,
             "VERSION": "v1.2.3",
             "TAP_REPOSITORY": "owner/homebrew-tap",
             "TAP_BRANCH": "main",
@@ -55,13 +55,13 @@ def assert_preflight() -> None:
         ok = run("validate-publish-inputs.sh", cwd=cwd, env=base)
         assert ok.returncode == 0, ok.stderr
 
-        bad_ref = run(
+        bad_commit = run(
             "validate-publish-inputs.sh",
             cwd=cwd,
-            env={**base, "REF": "main"},
+            env={**base, "COMMIT": "main"},
         )
-        assert bad_ref.returncode != 0
-        assert "full 40-character commit SHA" in bad_ref.stderr
+        assert bad_commit.returncode != 0
+        assert "full 40-character SHA" in bad_commit.stderr
 
         bad_repo = run(
             "validate-publish-inputs.sh",

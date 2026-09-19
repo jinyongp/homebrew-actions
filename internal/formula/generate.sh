@@ -3,9 +3,8 @@ set -euo pipefail
 
 : "${TAP_PATH:?}"
 : "${SOURCE_PATH:?}"
-: "${FORMULA:?}"
 : "${REPOSITORY:?}"
-: "${REF:?}"
+: "${COMMIT:?}"
 : "${SPEC_PATH:?}"
 : "${GITHUB_OUTPUT:?}"
 
@@ -28,7 +27,7 @@ reject_multiline() {
 }
 
 reject_multiline "repository" "$REPOSITORY"
-reject_multiline "ref" "$REF"
+reject_multiline "commit" "$COMMIT"
 reject_multiline "version" "${VERSION:-}"
 reject_multiline "spec-path" "$SPEC_PATH"
 
@@ -65,14 +64,12 @@ normalize_formula_version() {
   printf '%s\n' "$value"
 }
 
-case "$FORMULA" in
-  "" | *[!A-Za-z0-9._+@-]*)
-    echo "formula may contain only letters, numbers, dot, underscore, plus, at sign, and dash: $FORMULA" >&2
-    exit 1
-    ;;
-esac
-
 validate_repo "$REPOSITORY"
+
+if [[ ! "$COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "commit must be a full 40-character SHA" >&2
+  exit 1
+fi
 
 case "$SPEC_PATH" in
   /* | *"/../"* | ../* | */.. | "..")
@@ -87,19 +84,20 @@ if [ ! -f "$spec" ]; then
   exit 1
 fi
 
-resolved_ref="$(git -C "$SOURCE_PATH" rev-parse HEAD)"
-if [[ ! "$resolved_ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
-  echo "could not resolve source checkout to a commit SHA: $resolved_ref" >&2
+source_commit="$(git -C "$SOURCE_PATH" rev-parse HEAD)"
+if [[ ! "$source_commit" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "could not resolve source checkout to a commit SHA: $source_commit" >&2
+  exit 1
+fi
+normalized_commit="$(printf '%s' "$COMMIT" | tr '[:upper:]' '[:lower:]')"
+if [ "$source_commit" != "$normalized_commit" ]; then
+  echo "source checkout does not match commit: checkout=$source_commit commit=$normalized_commit" >&2
   exit 1
 fi
 
 version="${VERSION:-}"
 if [ -z "$version" ]; then
-  if [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
-    version="${REF:0:12}"
-  else
-    version="$REF"
-  fi
+  version="${normalized_commit:0:12}"
 fi
 version="$(normalize_formula_version "$version")"
 if [ -z "$version" ]; then
@@ -107,22 +105,17 @@ if [ -z "$version" ]; then
   exit 1
 fi
 
-formula_dir="${TAP_PATH%/}/Formula"
-formula_path="${formula_dir}/${FORMULA}.rb"
-
-mkdir -p "$formula_dir"
-
-FORMULA_PATH="$formula_path" \
-FORMULA="$FORMULA" \
+TAP_PATH="$TAP_PATH" \
 REPOSITORY="$REPOSITORY" \
 VERSION="$version" \
-RESOLVED_REF="$resolved_ref" \
+SOURCE_COMMIT="$source_commit" \
 SOURCE_PATH="$SOURCE_PATH" \
 SPEC="$spec" \
 VALIDATION_MODE="$VALIDATION_MODE" \
 GITHUB_OUTPUT="$GITHUB_OUTPUT" \
 ruby <<'RUBY'
 require "digest"
+require "fileutils"
 require "json"
 require "open3"
 require "tempfile"
@@ -185,10 +178,10 @@ def safe_release_segment(value, path)
   value
 end
 
-def resolve_distribution(spec, repository, version, resolved_ref, validation_mode)
+def resolve_distribution(spec, repository, version, source_commit, validation_mode)
   distribution = spec["distribution"]
   if distribution.nil?
-    url = "https://github.com/#{repository}/archive/#{resolved_ref}.tar.gz"
+    url = "https://github.com/#{repository}/archive/#{source_commit}.tar.gz"
     checksum = validation_mode == "spec" ? "0" * 64 : download_sha256(url)
     return {
       "type" => "source",
@@ -203,7 +196,7 @@ def resolve_distribution(spec, repository, version, resolved_ref, validation_mod
   when "source"
     unknown = distribution.keys - %w[type]
     fail_with("unsupported distribution keys for source: #{unknown.join(", ")}") unless unknown.empty?
-    url = "https://github.com/#{repository}/archive/#{resolved_ref}.tar.gz"
+    url = "https://github.com/#{repository}/archive/#{source_commit}.tar.gz"
     checksum = validation_mode == "spec" ? "0" * 64 : download_sha256(url)
     {
       "type" => "source",
@@ -258,8 +251,8 @@ def resolve_distribution(spec, repository, version, resolved_ref, validation_mod
     fail_with("GitHub Release #{tag} must be immutable") unless release["immutable"] == true
 
     tag_commit = github_json("repos/#{repository}/commits/#{tag}")["sha"]
-    unless tag_commit.is_a?(String) && tag_commit.casecmp?(resolved_ref)
-      fail_with("GitHub Release tag #{tag} does not resolve to source commit #{resolved_ref}")
+    unless tag_commit.is_a?(String) && tag_commit.casecmp?(source_commit)
+      fail_with("GitHub Release tag #{tag} does not resolve to source commit #{source_commit}")
     end
 
     release_assets = release["assets"]
@@ -490,7 +483,7 @@ end
 
 def ensure_known_keys(spec)
   allowed = %w[
-    caveats conflicts_with dependencies deprecate disable desc homepage install keg_only
+    name caveats conflicts_with dependencies deprecate disable desc homepage install keg_only
     license link_overwrite livecheck options post_install service test distribution
     uses_from_macos
   ]
@@ -513,7 +506,10 @@ end
 fail_with("formula spec must be a mapping") unless spec.is_a?(Hash)
 ensure_known_keys(spec)
 
-formula = ENV.fetch("FORMULA")
+formula = required_string(spec, "name")
+unless formula.match?(/\A[A-Za-z0-9._+@-]+\z/)
+  fail_with("name may contain only letters, numbers, dot, underscore, plus, at sign, and dash")
+end
 class_name = formula_class(formula)
 fail_with("formula renders an invalid Ruby class name: #{class_name}") unless class_name.match?(/\A[A-Z]\w*\z/)
 desc = required_string(spec, "desc")
@@ -525,7 +521,7 @@ distribution = resolve_distribution(
   spec,
   ENV.fetch("REPOSITORY"),
   ENV.fetch("VERSION"),
-  ENV.fetch("RESOLVED_REF"),
+  ENV.fetch("SOURCE_COMMIT"),
   ENV.fetch("VALIDATION_MODE"),
 )
 dependencies = dependency_lines(spec["dependencies"])
@@ -624,7 +620,15 @@ content << "\n" unless content.end_with?("\n")
 content << "  end\n"
 content << "end\n"
 
-File.write(ENV.fetch("FORMULA_PATH"), content)
+formula_dir = File.join(ENV.fetch("TAP_PATH"), "Formula")
+FileUtils.mkdir_p(formula_dir)
+formula_path = File.join(formula_dir, "#{formula}.rb")
+begin
+  RubyVM::InstructionSequence.compile(content)
+rescue SyntaxError => e
+  fail_with("generated Formula is invalid Ruby: #{e.message}")
+end
+File.write(formula_path, content)
 
 source = distribution.fetch("sources")["source"]
 runner_matrix = if ENV.fetch("VALIDATION_MODE") == "spec"
@@ -644,19 +648,16 @@ else
   end
 end
 File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |output|
-  output.puts "formula-path=Formula/#{ENV.fetch("FORMULA")}.rb"
+  output.puts "formula=#{formula}"
+  output.puts "formula-path=Formula/#{formula}.rb"
   output.puts "archive-url=#{source&.fetch("url", "") || ""}"
   output.puts "sha256=#{source&.fetch("sha256", "") || ""}"
-  output.puts "resolved-ref=#{ENV.fetch("RESOLVED_REF")}"
+  output.puts "commit=#{ENV.fetch("SOURCE_COMMIT")}"
   output.puts "version=#{ENV.fetch("VERSION")}"
   output.puts "distribution=#{distribution.fetch("type")}"
   output.puts "release-tag=#{distribution.fetch("tag", "")}"
   output.puts "validation-mode=#{ENV.fetch("VALIDATION_MODE")}"
   output.puts "runner-matrix=#{JSON.generate(runner_matrix)}"
 end
+puts "updated Formula/#{formula}.rb for #{ENV.fetch("REPOSITORY")}@#{ENV.fetch("SOURCE_COMMIT")}"
 RUBY
-
-ruby -c "$formula_path" >/dev/null
-
-relative_path="Formula/${FORMULA}.rb"
-echo "updated ${relative_path} for ${REPOSITORY}@${resolved_ref}"

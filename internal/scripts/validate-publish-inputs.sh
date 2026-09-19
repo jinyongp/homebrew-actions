@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${REF:?REF is required}"
+: "${COMMIT:?COMMIT is required}"
 : "${VERSION:?VERSION is required}"
 : "${TAP_REPOSITORY:?TAP_REPOSITORY is required}"
 : "${TAP_BRANCH:?TAP_BRANCH is required}"
@@ -15,19 +15,19 @@ reject_multiline() {
   esac
 }
 
-reject_multiline ref "$REF"
+reject_multiline commit "$COMMIT"
 reject_multiline version "$VERSION"
 reject_multiline tap-repository "$TAP_REPOSITORY"
 reject_multiline tap-branch "$TAP_BRANCH"
 
-case "$REF" in
+case "$COMMIT" in
   *[!0-9a-fA-F]*|"")
-    echo "ref must be a full 40-character commit SHA" >&2
+    echo "commit must be a full 40-character SHA" >&2
     exit 1
     ;;
 esac
-if [ "${#REF}" -ne 40 ]; then
-  echo "ref must be a full 40-character commit SHA" >&2
+if [ "${#COMMIT}" -ne 40 ]; then
+  echo "commit must be a full 40-character SHA" >&2
   exit 1
 fi
 

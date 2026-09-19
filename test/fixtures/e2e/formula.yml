@@ -1,3 +1,4 @@
+name: homebrew-tap-fixture
 desc: End-to-end publishing fixture
 homepage: https://github.com/jinyongp/homebrew-tap
 license: MIT

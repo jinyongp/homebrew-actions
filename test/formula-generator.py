@@ -30,6 +30,7 @@ def git(path, *args):
 
 def spec(distribution):
     lines = [
+        "name: example",
         "desc: Release fixture",
         "license: MIT",
         *distribution,
@@ -58,7 +59,7 @@ with tempfile.TemporaryDirectory() as directory:
     git(source, "config", "core.hooksPath", "/dev/null")
     spec_path = source / ".github/homebrew/formula.yml"
     spec_path.parent.mkdir(parents=True)
-    spec_path.write_text("desc: placeholder\nlicense: MIT\ninstall: x\ntest: x\n")
+    spec_path.write_text("name: example\ndesc: placeholder\nlicense: MIT\ninstall: x\ntest: x\n")
     git(source, "add", ".")
     git(source, "commit", "-m", "fixture")
     resolved_ref = subprocess.run(
@@ -125,9 +126,8 @@ esac
         os.environ,
         TAP_PATH=str(tap),
         SOURCE_PATH=str(source),
-        FORMULA="example",
         REPOSITORY="owner/example",
-        REF="release-commit",
+        COMMIT=resolved_ref,
         VERSION="v1.2.3",
         VALIDATION_MODE="release",
         SPEC_PATH=".github/homebrew/formula.yml",

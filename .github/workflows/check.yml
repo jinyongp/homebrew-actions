@@ -3,10 +3,6 @@ name: check Homebrew formula
 on:
   workflow_call:
     inputs:
-      formula:
-        description: Formula name to render and audit.
-        required: true
-        type: string
       tap-repository:
         description: Homebrew tap repository in owner/name form.
         required: false
@@ -22,12 +18,16 @@ on:
         required: false
         type: string
         default: .github/homebrew/formula.yml
+    outputs:
+      formula:
+        description: Formula name declared by the spec.
+        value: ${{ jobs.generate.outputs.formula }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: homebrew-check-${{ github.repository }}-${{ inputs.formula }}-${{ github.sha }}
+  group: homebrew-check-${{ github.repository }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -35,6 +35,8 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     outputs:
+      formula: ${{ steps.formula.outputs.formula }}
+      formula-path: ${{ steps.formula.outputs.formula-path }}
       runner-matrix: ${{ steps.formula.outputs.runner-matrix }}
     steps:
       - name: Checkout pinned Homebrew automation
@@ -68,17 +70,16 @@ jobs:
         with:
           tap-path: tap
           source-path: source
-          formula: ${{ inputs.formula }}
           repository: ${{ github.repository }}
-          ref: ${{ github.sha }}
+          commit: ${{ github.sha }}
           spec-path: ${{ inputs.spec-path }}
           validation-mode: spec
 
       - name: Upload generated Formula
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: homebrew-check-formula-${{ inputs.formula }}
-          path: tap/Formula/${{ inputs.formula }}.rb
+          name: homebrew-check-formula-${{ steps.formula.outputs.formula }}
+          path: ${{ steps.formula.outputs.formula-path }}
           if-no-files-found: error
           retention-days: 1
 
@@ -116,13 +117,13 @@ jobs:
       - name: Download generated Formula
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: homebrew-check-formula-${{ inputs.formula }}
+          name: homebrew-check-formula-${{ needs.generate.outputs.formula }}
           path: tap/Formula
 
       - name: Audit Formula
         env:
           TAP_PATH: tap
-          FORMULA: ${{ inputs.formula }}
+          FORMULA: ${{ needs.generate.outputs.formula }}
           VALIDATION_MODE: spec
         run: bash automation/internal/scripts/validate-formula.sh
 

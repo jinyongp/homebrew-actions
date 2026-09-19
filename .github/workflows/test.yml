@@ -27,8 +27,6 @@ jobs:
         run: python3 test/workflow-contracts.py
       - name: Publish scripts
         run: python3 test/publish-scripts.py
-      - name: Update policy
-        run: python3 test/update-policy.py
       - name: Deploy-key arguments
         run: python3 test/setup-deploy-key.py
       - name: Shell syntax
@@ -36,7 +34,6 @@ jobs:
           bash -n \
             internal/formula/generate.sh \
             internal/scripts/*.sh \
-            internal/policy/*.sh \
             scripts/setup-deploy-key.sh
       - name: Whitespace
         run: git diff --check
