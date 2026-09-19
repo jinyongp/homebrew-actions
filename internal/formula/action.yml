@@ -1,0 +1,78 @@
+name: Generate Homebrew formula
+description: Internal Formula renderer used by the reusable Homebrew workflows.
+
+inputs:
+  tap-path:
+    description: Path to the checked-out Homebrew tap repository.
+    required: false
+    default: "."
+  source-path:
+    description: Path to the checked-out source repository.
+    required: true
+  formula:
+    description: Formula name, for example gate.
+    required: true
+  repository:
+    description: GitHub repository in owner/name form.
+    required: true
+  ref:
+    description: Git ref, tag, branch, or commit SHA associated with the checked-out spec. Source distributions archive the resolved checkout.
+    required: true
+  version:
+    description: Formula version. Defaults to a short SHA for 40-character refs, otherwise ref. Numeric v prefixes are stripped and the normalized value expands {version} in release templates.
+    required: false
+    default: ""
+  spec-path:
+    description: Formula spec YAML path inside the source repository.
+    required: false
+    default: ".github/homebrew/formula.yml"
+  validation-mode:
+    description: Validate a published release and its assets, or only render and audit the Formula spec.
+    required: false
+    default: "release"
+
+outputs:
+  formula-path:
+    description: Relative path to the generated formula.
+    value: ${{ steps.update.outputs.formula-path }}
+  archive-url:
+    description: Source archive URL used by the formula. Empty for GitHub Release distributions.
+    value: ${{ steps.update.outputs.archive-url }}
+  sha256:
+    description: Source archive SHA-256 checksum. Empty for GitHub Release distributions.
+    value: ${{ steps.update.outputs.sha256 }}
+  resolved-ref:
+    description: Immutable commit SHA used by the source archive URL.
+    value: ${{ steps.update.outputs.resolved-ref }}
+  version:
+    description: Formula version used by the generated formula.
+    value: ${{ steps.update.outputs.version }}
+  distribution:
+    description: Formula distribution type, source or github-release.
+    value: ${{ steps.update.outputs.distribution }}
+  release-tag:
+    description: Expanded GitHub Release tag. Empty for source distributions.
+    value: ${{ steps.update.outputs.release-tag }}
+  runner-matrix:
+    description: JSON platform and native runner list for the requested validation mode.
+    value: ${{ steps.update.outputs.runner-matrix }}
+  validation-mode:
+    description: Applied validation mode, release or spec.
+    value: ${{ steps.update.outputs.validation-mode }}
+
+runs:
+  using: composite
+  steps:
+    - id: update
+      shell: bash
+      env:
+        TAP_PATH: ${{ inputs.tap-path }}
+        SOURCE_PATH: ${{ inputs.source-path }}
+        FORMULA: ${{ inputs.formula }}
+        REPOSITORY: ${{ inputs.repository }}
+        REF: ${{ inputs.ref }}
+        VERSION: ${{ inputs.version }}
+        SPEC_PATH: ${{ inputs.spec-path }}
+        VALIDATION_MODE: ${{ inputs.validation-mode }}
+        GH_TOKEN: ${{ github.token }}
+      run: bash "$GITHUB_ACTION_PATH/generate.sh"

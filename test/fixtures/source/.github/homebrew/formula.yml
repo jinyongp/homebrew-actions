@@ -1,0 +1,38 @@
+desc: Renderer test formula
+homepage: https://github.com/jinyongp/homebrew-tap
+license: MIT
+options:
+  - name: with-extra
+    description: Build with fixture extra support
+dependencies:
+  runtime:
+    - openssl@3
+  build:
+    - go
+  test:
+    - zstd
+uses_from_macos:
+  - curl
+  - name: zlib
+    tags: build
+    since: sequoia
+conflicts_with:
+  - formula: hello
+    because: both install hello binaries
+caveats: |
+  "Fixture caveat for #{version}"
+install: |
+  bin.mkpath
+  (bin/"fixture").write "#!/bin/sh\necho fixture\n"
+  chmod 0755, bin/"fixture"
+  prefix.install "README.md"
+  system "#{bin}/fixture", "--help"
+post_install: |
+  etc.install_symlink prefix/"README.md" => "fixture-readme"
+service: |
+  run opt_bin/"fixture"
+livecheck: |
+  skip "fixture"
+test: |
+  assert_path_exists prefix/"README.md"
+  shell_output("#{bin}/fixture --version")
