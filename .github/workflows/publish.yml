@@ -1,0 +1,255 @@
+name: publish Homebrew formula
+
+on:
+  workflow_call:
+    inputs:
+      formula:
+        description: Formula name to render, validate, and publish.
+        required: true
+        type: string
+      ref:
+        description: Full 40-character caller source commit SHA.
+        required: true
+        type: string
+      version:
+        description: Product version used by Formula rendering.
+        required: true
+        type: string
+      tap-repository:
+        description: Destination Homebrew tap repository in owner/name form.
+        required: false
+        type: string
+        default: jinyongp/homebrew-tap
+      tap-branch:
+        description: Destination tap branch.
+        required: false
+        type: string
+        default: main
+      spec-path:
+        description: Formula spec path inside the caller repository.
+        required: false
+        type: string
+        default: .github/homebrew/formula.yml
+    secrets:
+      tap_token:
+        description: Token with contents write access to the destination tap.
+        required: false
+      tap_deploy_key:
+        description: SSH deploy key with write access to the destination tap.
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-publish-${{ inputs.tap-repository }}-${{ inputs.formula }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      credential-mode: ${{ steps.credential.outputs.mode }}
+    steps:
+      - name: Checkout pinned Homebrew automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+
+      - name: Validate immutable publish inputs
+        env:
+          REF: ${{ inputs.ref }}
+          VERSION: ${{ inputs.version }}
+          TAP_REPOSITORY: ${{ inputs.tap-repository }}
+          TAP_BRANCH: ${{ inputs.tap-branch }}
+        run: bash automation/internal/scripts/validate-publish-inputs.sh
+
+      - name: Select tap credential
+        id: credential
+        env:
+          TAP_TOKEN: ${{ secrets.tap_token }}
+          TAP_DEPLOY_KEY: ${{ secrets.tap_deploy_key }}
+        run: bash automation/internal/scripts/select-tap-credential.sh
+
+  generate:
+    needs: preflight
+    runs-on: macos-latest
+    timeout-minutes: 20
+    outputs:
+      formula-path: ${{ steps.formula.outputs.formula-path }}
+      runner-matrix: ${{ steps.formula.outputs.runner-matrix }}
+      version: ${{ steps.formula.outputs.version }}
+    steps:
+      - name: Checkout pinned Homebrew automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+
+      - name: Checkout tap baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.tap-repository }}
+          ref: ${{ inputs.tap-branch }}
+          path: tap
+          persist-credentials: false
+
+      - name: Checkout caller source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.ref }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate Formula
+        id: formula
+        uses: ./automation/internal/formula
+        with:
+          tap-path: tap
+          source-path: source
+          formula: ${{ inputs.formula }}
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.ref }}
+          version: ${{ inputs.version }}
+          spec-path: ${{ inputs.spec-path }}
+          validation-mode: release
+
+      - name: Upload generated Formula
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: homebrew-publish-formula-${{ inputs.formula }}
+          path: tap/Formula/${{ inputs.formula }}.rb
+          if-no-files-found: error
+          retention-days: 1
+
+  validate:
+    needs: generate
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.generate.outputs.runner-matrix) }}
+    steps:
+      - name: Setup Homebrew
+        if: runner.os == 'Linux'
+        uses: Homebrew/actions/setup-homebrew@082c94ee19e776205cfa8e43802917d1425e2fe7 # main
+        with:
+          stable: true
+
+      - name: Checkout pinned Homebrew automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+
+      - name: Checkout tap baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.tap-repository }}
+          ref: ${{ inputs.tap-branch }}
+          path: tap
+          persist-credentials: false
+
+      - name: Download generated Formula
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: homebrew-publish-formula-${{ inputs.formula }}
+          path: tap/Formula
+
+      - name: Validate Formula
+        env:
+          TAP_PATH: tap
+          FORMULA: ${{ inputs.formula }}
+          VALIDATION_MODE: release
+        run: bash automation/internal/scripts/validate-formula.sh
+
+  homebrew-check:
+    if: always()
+    needs:
+      - generate
+      - validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout pinned Homebrew automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+
+      - name: Require successful Formula validation
+        env:
+          GENERATE_RESULT: ${{ needs.generate.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: bash automation/internal/scripts/require-formula-validation.sh
+
+  publish:
+    needs:
+      - preflight
+      - generate
+      - homebrew-check
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pinned Homebrew automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+
+      - name: Checkout destination tap with token
+        if: needs.preflight.outputs.credential-mode == 'token'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.tap-repository }}
+          ref: ${{ inputs.tap-branch }}
+          token: ${{ secrets.tap_token }}
+          path: tap
+          fetch-depth: 0
+
+      - name: Checkout destination tap with deploy key
+        if: needs.preflight.outputs.credential-mode == 'deploy_key'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.tap-repository }}
+          ref: ${{ inputs.tap-branch }}
+          ssh-key: ${{ secrets.tap_deploy_key }}
+          path: tap
+          fetch-depth: 0
+
+      - name: Download generated Formula
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: homebrew-publish-formula-${{ inputs.formula }}
+          path: tap/Formula
+
+      - name: Commit Formula
+        id: commit
+        working-directory: tap
+        env:
+          FORMULA_PATH: ${{ needs.generate.outputs.formula-path }}
+          FORMULA: ${{ inputs.formula }}
+          VERSION: ${{ needs.generate.outputs.version }}
+        run: bash ../automation/internal/scripts/commit-formula.sh
+
+      - name: Push Formula
+        if: steps.commit.outputs.changed == 'true'
+        working-directory: tap
+        env:
+          TAP_BRANCH: ${{ inputs.tap-branch }}
+        run: bash ../automation/internal/scripts/push-formula.sh

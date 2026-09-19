@@ -37,8 +37,50 @@ def assert_check_contract() -> None:
     assert "default: main" in text
 
 
+def assert_publish_contract() -> None:
+    text = (ROOT / ".github/workflows/publish.yml").read_text()
+
+    assert "permissions:\n  contents: read" in text
+    public = text.split("permissions:", 1)[0]
+    for required in [
+        "      formula:",
+        "      ref:",
+        "      version:",
+        "      tap-repository:",
+        "      tap-branch:",
+        "      spec-path:",
+    ]:
+        assert required in public, required
+
+    assert "      tap_token:" in public
+    assert "      tap_deploy_key:" in public
+    assert "      repository:" not in public
+    assert "      dry-run:" not in public
+    assert "      validation-mode:" not in public
+
+    assert "run: bash automation/internal/scripts/validate-publish-inputs.sh" in text
+    assert "run: bash automation/internal/scripts/select-tap-credential.sh" in text
+
+    assert "repository: ${{ job.workflow_repository }}" in text
+    assert "ref: ${{ job.workflow_sha }}" in text
+    assert "repository: ${{ github.repository }}" in text
+    assert "ref: ${{ inputs.ref }}" in text
+
+    assert "validation-mode: release" in text
+    assert "\n  homebrew-check:" in text
+    assert "\n  publish:" in text
+    assert "      - homebrew-check" in text
+
+    assert "repository: ${{ inputs.tap-repository }}" in text
+    assert "ref: ${{ inputs.tap-branch }}" in text
+    assert "token: ${{ secrets.tap_token }}" in text
+    assert "ssh-key: ${{ secrets.tap_deploy_key }}" in text
+    assert "TAP_BRANCH: ${{ inputs.tap-branch }}" in text
+
+
 def main() -> None:
     assert_check_contract()
+    assert_publish_contract()
     print("Homebrew workflow contracts passed")
 
 
