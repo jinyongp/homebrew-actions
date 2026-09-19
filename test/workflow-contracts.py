@@ -83,6 +83,7 @@ def assert_repository_contract() -> None:
     assert not (ROOT / "internal/policy").exists()
     assert not (ROOT / "test/update-policy.py").exists()
     assert not (ROOT / ".github/workflows/release-fixture-e2e.yml").exists()
+    assert not (ROOT / "test/fixtures").exists()
 
     assert "jinyongp/release-actions@" in release
     assert "gh release create" not in release
