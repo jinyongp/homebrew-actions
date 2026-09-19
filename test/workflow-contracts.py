@@ -24,6 +24,7 @@ def assert_check_contract() -> None:
     assert "commit: ${{ github.sha }}" in text
     assert "uses: ./automation/internal/formula" in text
     assert "formula: ${{ steps.formula.outputs.formula }}" in text
+    assert "path: tap/${{ steps.formula.outputs.formula-path }}" in text
     assert "FORMULA: ${{ needs.generate.outputs.formula }}" in text
     assert "validation-mode: spec" in text
     assert "\n  homebrew-check:" in text
@@ -51,6 +52,7 @@ def assert_publish_contract() -> None:
     assert "ref: ${{ inputs.commit }}" in text
     assert "commit: ${{ inputs.commit }}" in text
     assert "formula: ${{ steps.formula.outputs.formula }}" in text
+    assert "path: tap/${{ steps.formula.outputs.formula-path }}" in text
     assert "FORMULA: ${{ needs.generate.outputs.formula }}" in text
     assert "state=published" in text
     assert "state=unchanged" in text
