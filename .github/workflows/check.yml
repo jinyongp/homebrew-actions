@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: homebrew-check-${{ github.repository }}-${{ github.sha }}
+  group: homebrew-check-${{ github.repository }}-${{ inputs.spec-path }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:

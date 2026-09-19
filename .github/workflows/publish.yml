@@ -48,7 +48,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: homebrew-publish-${{ inputs.tap-repository }}-${{ github.repository }}
+  group: homebrew-publish-${{ inputs.tap-repository }}-${{ github.repository }}-${{ inputs.spec-path }}-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:

@@ -27,6 +27,7 @@ def assert_check_contract() -> None:
     assert "path: tap/${{ steps.formula.outputs.formula-path }}" in text
     assert "FORMULA: ${{ needs.generate.outputs.formula }}" in text
     assert "validation-mode: spec" in text
+    assert "group: homebrew-check-${{ github.repository }}-${{ inputs.spec-path }}-${{ github.sha }}" in text
     assert "\n  homebrew-check:" in text
 
 
@@ -56,6 +57,7 @@ def assert_publish_contract() -> None:
     assert "FORMULA: ${{ needs.generate.outputs.formula }}" in text
     assert "state=published" in text
     assert "state=unchanged" in text
+    assert "group: homebrew-publish-${{ inputs.tap-repository }}-${{ github.repository }}-${{ inputs.spec-path }}-${{ inputs.version }}" in text
     assert "\n  homebrew-check:" in text
     assert "\n  publish:" in text
 
