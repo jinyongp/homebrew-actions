@@ -30,6 +30,10 @@ def main() -> None:
     assert empty_title.returncode != 0
     assert "--title requires a non-empty value" in empty_title.stdout
 
+    missing_tap = run()
+    assert missing_tap.returncode != 0
+    assert "TAP_REPO must specify" in missing_tap.stderr
+
     print("deploy-key setup argument checks passed")
 
 

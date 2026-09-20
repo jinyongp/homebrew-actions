@@ -5,9 +5,8 @@ on:
     inputs:
       tap-repository:
         description: Homebrew tap repository in owner/name form.
-        required: false
+        required: true
         type: string
-        default: jinyongp/homebrew-tap
       tap-branch:
         description: Tap branch used as the rendering baseline.
         required: false

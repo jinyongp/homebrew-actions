@@ -5,3 +5,9 @@ paths:
   .github/workflows/publish.yml:
     ignore:
       - 'property "workflow_(repository|sha)" is not defined in object type'
+  .github/workflows/tap-check.yml:
+    ignore:
+      - 'property "workflow_(repository|sha)" is not defined in object type'
+  .github/workflows/tap-delete.yml:
+    ignore:
+      - 'property "workflow_(repository|sha)" is not defined in object type'

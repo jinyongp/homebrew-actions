@@ -13,9 +13,8 @@ on:
         type: string
       tap-repository:
         description: Destination Homebrew tap repository in owner/name form.
-        required: false
+        required: true
         type: string
-        default: jinyongp/homebrew-tap
       tap-branch:
         description: Destination tap branch.
         required: false

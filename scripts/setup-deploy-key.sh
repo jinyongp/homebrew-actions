@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TAP_REPO="${TAP_REPO:-jinyongp/homebrew-tap}"
+TAP_REPO="${TAP_REPO:-}"
 SOURCE_REPO="${SOURCE_REPO:-}"
 SECRET_NAME="${SECRET_NAME:-HOMEBREW_TAP_DEPLOY_KEY}"
 KEY_TITLE="${KEY_TITLE:-}"
@@ -15,8 +15,10 @@ Usage: scripts/setup-deploy-key.sh [--force] [--title TITLE]
 Create a write deploy key for the Homebrew tap and store its private key as
 the release workflow secret.
 
+Required:
+  TAP_REPO:     destination owner/repository
+
 Defaults:
-  tap repo:      ${TAP_REPO}
   source repo:   current GitHub repository
   secret name:   ${SECRET_NAME}
   key title:     formula/<repository name>
@@ -91,6 +93,8 @@ secret_exists() {
   gh secret list --repo "$SOURCE_REPO" --json name \
     --jq ".[] | select(.name == \"${SECRET_NAME}\") | .name" | grep -qx "$SECRET_NAME"
 }
+
+: "${TAP_REPO:?TAP_REPO must specify the destination owner/repository}"
 
 require_command gh
 require_command ssh-keygen

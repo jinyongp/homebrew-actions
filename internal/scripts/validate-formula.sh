@@ -16,7 +16,7 @@ esac
 validation_root="$(mktemp -d)"
 validation_path="${validation_root}/homebrew-validation"
 validation_id="${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-1}"
-validation_tap="jinyongp/validation-${validation_id}"
+validation_tap="releaseway/validation-${validation_id}"
 
 cleanup() {
   status="$?"

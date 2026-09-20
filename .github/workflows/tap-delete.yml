@@ -1,0 +1,65 @@
+name: delete Homebrew formula
+
+on:
+  workflow_call:
+    inputs:
+      formula:
+        description: Formula name to delete from the caller tap.
+        required: true
+        type: string
+      dry-run:
+        description: Show the planned deletion without committing.
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      state:
+        description: dry-run or deleted.
+        value: ${{ jobs.delete.outputs.state }}
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    outputs:
+      state: ${{ steps.result.outputs.state }}
+    steps:
+      - name: Checkout pinned automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Checkout caller default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tap
+          fetch-depth: 0
+      - name: Delete Formula
+        id: delete
+        working-directory: tap
+        env:
+          FORMULA: ${{ inputs.formula }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: bash ../automation/internal/scripts/delete-formula.sh
+      - name: Push deletion
+        if: ${{ !inputs.dry-run && steps.delete.outputs.changed == 'true' }}
+        working-directory: tap
+        env:
+          TAP_BRANCH: ${{ github.event.repository.default_branch }}
+        run: bash ../automation/internal/scripts/push-tap-maintenance.sh
+      - name: Report result
+        id: result
+        env:
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "state=dry-run" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=deleted" >> "$GITHUB_OUTPUT"
+          fi

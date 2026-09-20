@@ -53,12 +53,12 @@ jobs:
 
       - name: Publish immutable automation release
         id: publish
-        uses: jinyongp/release-actions@eb9538e3c76d1dc4c0e5cc4ca645480d3ec7c7b6 # v1.1.0
+        uses: releaseway/actions@5b7090184832d6fc92ccee5b3caa0417d3df9235 # v0.1.0
         with:
           tag: ${{ steps.release.outputs.tag }}
           commit: ${{ steps.release.outputs.target }}
           title: ${{ steps.release.outputs.tag }}
-          latest: "false"
+          latest: "true"
 
       - name: Summary
         run: |

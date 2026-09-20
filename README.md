@@ -33,7 +33,9 @@ Add a reusable-workflow job to the product's pull-request CI:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-actions/.github/workflows/check.yml@<full-sha> # v2.0.0
+    uses: releaseway/homebrew-actions/.github/workflows/check.yml@<full-sha> # v0.1.0
+    with:
+      tap-repository: owner/homebrew-tap
 ```
 
 The check is read-only. It renders the Formula from the caller revision and runs the
@@ -47,8 +49,10 @@ same immutable source commit:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-actions/.github/workflows/publish.yml@<full-sha> # v2.0.0
+    needs: release
+    uses: releaseway/homebrew-actions/.github/workflows/publish.yml@<full-sha> # v0.1.0
     with:
+      tap-repository: owner/homebrew-tap
       commit: ${{ needs.release.outputs.commit }}
       version: ${{ needs.release.outputs.version }}
     secrets:
@@ -106,7 +110,7 @@ script can provision one and store the private key directly as a source-reposito
 Actions secret without printing it:
 
 ```sh
-SOURCE_REPO=owner/product scripts/setup-deploy-key.sh
+TAP_REPO=owner/homebrew-tap SOURCE_REPO=owner/product bash scripts/setup-deploy-key.sh
 ```
 
 The default secret name is `HOMEBREW_TAP_DEPLOY_KEY`. Use `--force` only for an
@@ -114,13 +118,13 @@ intentional key rotation.
 
 ## Advanced options
 
-Both workflows default to:
+Both workflows require an explicit `tap-repository` in `owner/repo` form.
+Defaults for the remaining inputs are:
 
-- tap repository: `jinyongp/homebrew-tap`;
 - tap branch: `main`;
 - spec path: `.github/homebrew/formula.yml`.
 
-Override these only for another tap or a test fixture:
+Configure the destination and optional paths:
 
 ```yaml
 with:
@@ -141,6 +145,24 @@ install/test behavior, optional stanzas, and release-asset names.
 The automation owns generated Formula structure, class naming, source URLs, checksums,
 platform blocks, field ordering, native validation, tap commit creation, and bounded
 fetch/rebase/retry when the tap advances concurrently. It never force-pushes the tap.
+
+Adding a package requires only its product-side spec and workflow. The same publish
+path creates a new Formula or updates an existing one; no tap-side package list,
+manual Formula edit, or pull-request merge is required.
+
+## Tap maintenance
+
+Create a new tap with [homebrew-tap-starter](https://github.com/releaseway/homebrew-tap-starter).
+Existing public taps can call the same reusable workflows:
+
+- `tap-check.yml`: read-only Ruby syntax and strict audit of all Formulae. Empty taps pass.
+- `tap-delete.yml`: deletes one `formula` from the caller's default branch, using
+  `contents: write`. Optional `dry-run` defaults to `false`. Outputs `state`
+  (`dry-run` or `deleted`). As in the original maintenance script, a missing
+  Formula fails rather than reporting a successful deletion.
+
+Tap maintenance uses the caller's token and needs no cross-repository write secret.
+Direct pushes must be allowed by the destination branch policy.
 
 ## Validation model
 
@@ -163,6 +185,7 @@ python3 test/formula-generator.py
 python3 test/workflow-contracts.py
 python3 test/publish-scripts.py
 python3 test/setup-deploy-key.py
+python3 test/tap-maintenance.py
 ```
 
 CI runs the regression suite on Linux and macOS and lints the reusable workflows.

@@ -87,7 +87,7 @@ def assert_repository_contract() -> None:
     assert not (ROOT / ".github/workflows/release-fixture-e2e.yml").exists()
     assert not (ROOT / "test/fixtures").exists()
 
-    assert "jinyongp/release-actions@" in release
+    assert "releaseway/actions@" in release
     assert "gh release create" not in release
     for workflow in ["check.yml", "publish.yml"]:
         assert f".github/workflows/{workflow}" in release
@@ -107,6 +107,11 @@ def assert_repository_contract() -> None:
 def main() -> None:
     assert_check_contract()
     assert_publish_contract()
+    for workflow in ["check.yml", "publish.yml"]:
+        text = (ROOT / ".github/workflows" / workflow).read_text()
+        block = text.split("      tap-repository:", 1)[1].split("      tap-branch:", 1)[0]
+        assert "required: true" in block
+        assert "default:" not in block
     assert_internal_formula_contract()
     assert_repository_contract()
     print("Homebrew workflow contracts passed")

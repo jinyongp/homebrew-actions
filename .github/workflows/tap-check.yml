@@ -1,0 +1,29 @@
+name: check Homebrew tap
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  tap-check:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Checkout caller tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tap
+          persist-credentials: false
+      - name: Check all Formulae
+        env:
+          TAP_PATH: tap
+        run: bash automation/internal/scripts/check-tap.sh
