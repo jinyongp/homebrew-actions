@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import os
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,7 @@ def run(*args: str):
         text=True,
         capture_output=True,
         check=False,
+        env={**os.environ, "TAP_REPO": ""},
     )
 
 
